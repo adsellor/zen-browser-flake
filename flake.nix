@@ -21,28 +21,68 @@
           variant = (builtins.fromJSON (builtins.readFile ./sources.json)).${entry}.${system};
 
           desktopFile = if name == "beta" then "zen.desktop" else "zen_${name}.desktop";
+          isDarwin = pkgs.stdenv.isDarwin;
         in
-        pkgs.callPackage ./package.nix {
-          inherit name desktopFile variant;
-        };
+          if isDarwin then
+           pkgs.stdenv.mkDerivation {
+             inherit (variant) version;
+             pname = "zen-browser";
+          
+             src = builtins.fetchurl {
+               inherit (variant) url sha256;
+             };
+          
+             nativeBuildInputs = with pkgs; [
+               undmg
+             ];
+          
+             sourceRoot = ".";
+             phases = ["unpackPhase" "installPhase"];
+          
+             unpackPhase = ''
+               ${pkgs.undmg}/bin/undmg $src
+             '';
+          
+             installPhase = ''
+               mkdir -p $out/Applications
+               cp -r "Zen Browser${if name != "beta" then " " + name else ""}.app" $out/Applications/
+          
+               # Create symbolic links to the binary
+               mkdir -p $out/bin
+               ln -s "$out/Applications/Zen Browser${if name != "beta" then " " + name else ""}.app/Contents/MacOS/zen" $out/bin/zen
+               ln -s $out/bin/zen $out/bin/zen-${name}
+             '';
+          
+             meta = {
+               description = "Experience tranquillity while browsing the web without people tracking you!";
+               homepage = "https://zen-browser.app";
+               downloadPage = "https://zen-browser.app/download/";
+               changelog = "https://github.com/zen-browser/desktop/releases";
+               platforms = pkgs.lib.platforms.darwin;
+               mainProgram = "zen";
+             };
+           }
+        else
+            pkgs.callPackage ./package.nix {
+              inherit name desktopFile variant;
+            };
+            mkZenWrapped =
+              name: system: entry:
+              let
+                pkgs = nixpkgs.legacyPackages.${system};
+              in
+              pkgs.wrapFirefox entry {
+                icon = "zen-${name}";
+                wmClass = "zen-${name}";
+                hasMozSystemDirPatch = false;
+              };
 
-      mkZenWrapped =
-        name: system: entry:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        pkgs.wrapFirefox entry {
-          icon = "zen-${name}";
-          wmClass = "zen-${name}";
-          hasMozSystemDirPatch = false;
-        };
+            supportedSystems = [
+              "x86_64-linux"
+              "aarch64-linux"
+            ];
 
-      supportedSystems = [
-        "x86_64-linux"
-        "aarch64-linux"
-      ];
-
-      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+            forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
     in
     {
       packages = forAllSystems (system: rec {
